@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Generador de Rifas</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .container {
+            width: 100%;
+            max-width: 800px;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        h1, h2 {
+            text-align: center;
+        }
+        .info-card {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+        }
+        .info-card div {
+            display: flex;
+            flex-direction: column;
+        }
+        input, select, button {
+            margin-top: 5px;
+            padding: 5px;
+            border-radius: 5px;
+            border: none;
+        }
+        .buttons {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .buttons button {
+            padding: 10px 15px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background-color 0.3s, transform 0.1s;
+        }
+        .buttons button:hover {
+            transform: translateY(-2px);
+        }
+        .buttons button:active {
+            transform: translateY(1px);
+        }
+        #randomBtn {
+            background-color: #a78bfa;
+            color: white;
+        }
+        #randomBtn:hover {
+            background-color: #9061f9;
+        }
+        #newRaffleBtn {
+            background-color: #f9a8d4;
+            color: white;
+        }
+        #newRaffleBtn:hover {
+            background-color: #f472b6;
+        }
+        #exportBtn {
+            background-color: #93c5fd;
+            color: white;
+        }
+        #exportBtn:hover {
+            background-color: #60a5fa;
+        }
+        .numbers-grid {
+            display: grid;
+            grid-template-columns: repeat(10, 1fr);
+            gap: 5px;
+        }
+        .number {
+            aspect-ratio: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #f0f0f0;
+            border-radius: 5px;
+            font-size: 14px;
+            cursor: pointer;
+            color: black;
+        }
+        .number.selected { background: #4CAF50; color: white; }
+        .number.reserved { background: #FFC107; }
+        .number.pending { background: #FF5722; color: white; }
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.4);
+        }
+        .modal-content {
+            background-color: #fefefe;
+            margin: 15% auto;
+            padding: 20px;
+            border: 1px solid #888;
+            width: 300px;
+            border-radius: 10px;
+            color: black;
+        }
+        .close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .close:hover { color: black; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Generador de Rifas</h1>
+        <h2>consultoria-ingenieria.com</h2>
+        
+        <div class="info-card">
+            <div>
+                <label for="fecha">Fecha del Sorteo:</label>
+                <input type="date" id="fecha">
+            </div>
+            <div>
+                <label for="premio">Premio:</label>
+                <input type="text" id="premio" placeholder="Ingrese el premio">
+            </div>
+        </div>
+        
+        <div class="buttons">
+            <button id="randomBtn" onclick="selectRandom()">Seleccionar Número al Azar</button>
+            <button id="newRaffleBtn" onclick="clearSelection()">Iniciar Nueva Rifa</button>
+            <button id="exportBtn" onclick="exportPDF()">Exportar a PDF</button>
+        </div>
+        
+        <div class="numbers-grid" id="numbersGrid"></div>
+        
+        <p id="selectedCount">Números seleccionados: 0</p>
+    </div>
+
+    <div id="buyerModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal()">&times;</span>
+            <h3 id="modalTitle">Ingrese el nombre del comprador</h3>
+            <input type="text" id="buyerName" placeholder="Nombre del comprador">
+            <select id="paymentStatus">
+                <option value="pending">Pendiente de Pago</option>
+                <option value="reserved">Apartado</option>
+                <option value="paid">Pagado</option>
+            </select>
+            <button onclick="saveBuyerName()">Guardar</button>
+        </div>
+    </div>
+
+    <script>
+        let selectedNumbers = new Set();
+        let buyerNames = {};
+        let paymentStatuses = {};
+        let currentNumber = null;
+
+        function createGrid() {
+            const grid = document.getElementById('numbersGrid');
+            grid.innerHTML = '';
+            for(let i = 0; i < 100; i++) {
+                const number = document.createElement('div');
+                number.className = 'number';
+                number.textContent = i.toString().padStart(2, '0');
+                number.onclick = () => toggleNumber(i);
+                if (selectedNumbers.has(i)) {
+                    updateNumberAppearance(i, number);
+                }
+                grid.appendChild(number);
+            }
+        }
+
+        function toggleNumber(num) {
+            currentNumber = num;
+            document.getElementById('buyerName').value = buyerNames[num] || '';
+            document.getElementById('paymentStatus').value = paymentStatuses[num] || 'pending';
+            document.getElementById('modalTitle').textContent = buyerNames[num] ? 'Editar comprador' : 'Ingrese el nombre del comprador';
+            openModal();
+        }
+
+        function selectRandom() {
+            let availableNumbers = [];
+            for(let i = 0; i < 100; i++) {
+                if(!selectedNumbers.has(i)) {
+                    availableNumbers.push(i);
+                }
+            }
+            if(availableNumbers.length > 0) {
+                const randomIndex = Math.floor(Math.random() * availableNumbers.length);
+                toggleNumber(availableNumbers[randomIndex]);
+            }
+        }
+
+        function saveBuyerName() {
+            const name = document.getElementById('buyerName').value.trim();
+            const status = document.getElementById('paymentStatus').value;
+            if(name && currentNumber !== null) {
+                buyerNames[currentNumber] = name;
+                paymentStatuses[currentNumber] = status;
+                selectedNumbers.add(currentNumber);
+                updateNumberAppearance(currentNumber);
+                updateSelectedCount();
+                closeModal();
+                autoSave();
+            }
+        }
+
+        function updateNumberAppearance(num, element = null) {
+            const numberElement = element || document.querySelectorAll('.number')[num];
+            numberElement.classList.add('selected');
+            numberElement.classList.remove('pending', 'reserved');
+            if (paymentStatuses[num] === 'pending') numberElement.classList.add('pending');
+            if (paymentStatuses[num] === 'reserved') numberElement.classList.add('reserved');
+            numberElement.textContent = num.toString().padStart(2, '0');
+        }
+
+        function clearSelection() {
+            if(confirm('¿Está seguro que desea borrar todos los datos? Esta acción no se puede deshacer.')) {
+                selectedNumbers.clear();
+                buyerNames = {};
+                paymentStatuses = {};
+                document.getElementById('premio').value = '';
+                document.getElementById('fecha').value = '';
+                createGrid();
+                updateSelectedCount();
+                localStorage.removeItem('rifaData');
+            }
+        }
+
+        function updateSelectedCount() {
+            document.getElementById('selectedCount').textContent = `Números seleccionados: ${selectedNumbers.size}`;
+        }
+
+        function openModal() {
+            document.getElementById('buyerModal').style.display = 'block';
+        }
+
+        function closeModal() {
+            document.getElementById('buyerModal').style.display = 'none';
+        }
+
+        function exportPDF() {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            
+            doc.setFontSize(20);
+            doc.text('Números de Rifa', 105, 20, { align: 'center' });
+            
+            doc.setFontSize(14);
+            const premio = document.getElementById('premio').value || 'No especificado';
+            const fecha = document.getElementById('fecha').value || 'No especificada';
+            doc.text(`Premio: ${premio}`, 20, 35);
+            doc.text(`Fecha del Sorteo: ${fecha}`, 20, 45);
+            
+            doc.setFontSize(12);
+            const sortedNumbers = Array.from(selectedNumbers).sort((a, b) => a - b);
+            let y = 60;
+            
+            sortedNumbers.forEach((num) => {
+                const status = paymentStatuses[num] === 'paid' ? 'PAGADO' : 
+                               paymentStatuses[num] === 'reserved' ? 'APARTADO' : 
+                               'PENDIENTE';
+                const text = `${num.toString().padStart(2, '0')} - ${buyerNames[num]} (${status})`;
+                doc.text(text, 20, y);
+                y += 10;
+                
+                if (y > 280) {
+                    doc.addPage();
+                    y = 20;
+                }
+            });
+            
+            doc.save('rifa.pdf');
+        }
+
+        function autoSave() {
+            const data = {
+                selectedNumbers: Array.from(selectedNumbers),
+                buyerNames: buyerNames,
+                paymentStatuses: paymentStatuses,
+                premio: document.getElementById('premio').value,
+                fecha: document.getElementById('fecha').value
+            };
+            localStorage.setItem('rifaData', JSON.stringify(data));
+        }
+
+        function loadSavedData() {
+            const savedData = localStorage.getItem('rifaData');
+            if (savedData) {
+                const data = JSON.parse(savedData);
+                selectedNumbers = new Set(data.selectedNumbers);
+                buyerNames = data.buyerNames;
+                paymentStatuses = data.paymentStatuses;
+                document.getElementById('premio').value = data.premio || '';
+                document.getElementById('fecha').value = data.fecha || '';
+                createGrid();
+                updateSelectedCount();
+            } else {
+                createGrid();
+            }
+        }
+
+        window.onclick = function(event) {
+            if (event.target == document.getElementById('buyerModal')) {
+                closeModal();
+            }
+        }
+
+        document.getElementById('premio').addEventListener('change', autoSave);
+        document.getElementById('fecha').addEventListener('change', autoSave);
+
+        window.onload = loadSavedData;
+    </script>
+</body>
+</html>
